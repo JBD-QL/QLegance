@@ -173,7 +173,10 @@ let QLegance = (()=>{
 
   function populate(data){
     let fields = this.element.querySelectorAll('[ql-field]');
-    let users = data.users;
+    let collection = document.getElementById("list").getAttribute("ql-list");
+    let users = data[collection];
+    console.log("this: ", data[collection].length);
+    console.log("we want this: ", data);
     let user;
     let fieldName;
     let element;
