@@ -110,13 +110,33 @@ let QLegance = (()=>{
 
       this.getServer = () => { return server; };
 
-      this.sendQuery = (query, data) => {
+      this.sendQuery = (query) => {
         return new Promise((resolve, reject) => {
           let xhr = new XMLHttpRequest();
 
           xhr.open("POST", server, true);
           xhr.setRequestHeader("Content-Type", "application/json");
           xhr.send(JSON.stringify({query: query}));
+
+          xhr.onreadystatechange = () => {
+            if(xhr.status === 200 && xhr.readyState === 4){
+              let response = JSON.parse(xhr.response);
+              this.cacheQuery(query, response.data);
+              resolve(response);
+            }else if(xhr.status > 400 && xhr.status < 500){
+              reject(xhr.status)
+            }
+          };
+        });
+      }
+
+      this.mutate = (mutationStr) => {
+        return new Promise((resolve, reject) => {
+          let xhr = new XMLHttpRequest();
+          const string = "mutation " + mutationStr;
+          xhr.open("POST", server, true);
+          xhr.setRequestHeader("Content-Type", "application/json");
+          xhr.send(JSON.stringify({query: string}));
 
           xhr.onreadystatechange = () => {
             if(xhr.status === 200 && xhr.readyState === 4){
