@@ -128,7 +128,27 @@ let QLegance = (()=>{
             }
           };
         });
-      }
+      };
+
+      this.query = (query) => {
+        return new Promise((resolve, reject) => {
+          let xhr = new XMLHttpRequest();
+          let queryStr = "query" + query;
+          xhr.open("POST", server, true);
+          xhr.setRequestHeader("Content-Type", "application/json");
+          xhr.send(JSON.stringify({query: queryStr}));
+
+          xhr.onreadystatechange = () => {
+            if(xhr.status === 200 && xhr.readyState === 4){
+              let response = JSON.parse(xhr.response);
+              this.cacheQuery(query, response.data);
+              resolve(response);
+            }else if(xhr.status > 400 && xhr.status < 500){
+              reject(xhr.status)
+            }
+          };
+        });
+      };
 
       this.mutate = (mutationStr) => {
         return new Promise((resolve, reject) => {
@@ -148,7 +168,7 @@ let QLegance = (()=>{
             }
           };
         });
-      }
+      };
     }
 
     cacheQuery(query, data){
