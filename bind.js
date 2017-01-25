@@ -133,10 +133,10 @@ let QLegance = (()=>{
       this.mutate = (mutationStr) => {
         return new Promise((resolve, reject) => {
           let xhr = new XMLHttpRequest();
-
+          const string = "mutation {"+mutationStr+"}";
           xhr.open("POST", server, true);
           xhr.setRequestHeader("Content-Type", "application/json");
-          xhr.send(JSON.stringify({query: mutationStr}));
+          xhr.send(JSON.stringify({query: string}));
 
           xhr.onreadystatechange = () => {
             if(xhr.status === 200 && xhr.readyState === 4){
