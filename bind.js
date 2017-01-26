@@ -97,7 +97,18 @@ let QLegance = (()=>{
       this.sendQuery(introspectiveQuery)
         .then((res) => {
           // console.log(res);
-          const fields = res.data.__schema.mutationType.fields.concat(res.data.__schema.queryType.fields);
+          const fields = [];
+          for (let i = 0; i < res.data.__schema.mutationType.fields.length; i += 1) {
+            // console.log(res.data.__schema.mutationType.fields[i]);
+            res.data.__schema.mutationType.fields[i].query = 'mutation';
+            fields.push(res.data.__schema.mutationType.fields[i]);
+          }
+          for (let i = 0; i < res.data.__schema.queryType.fields.length; i += 1) {
+            // console.log(res.data.__schema.queryType.fields[i]);
+            res.data.__schema.queryType.fields[i].query = 'query';
+            fields.push(res.data.__schema.queryType.fields[i]);
+          }
+          // res.data.__schema.mutationType.fields.concat(res.data.__schema.queryType.fields);
           console.log('fields:', fields);
           this.types = {};
           // loop through fields
@@ -126,7 +137,17 @@ let QLegance = (()=>{
     }
 
     methodConstructor(field) {
+      // QLegance.field_name(...args, [returning values])
 
+      // create tempFunc
+
+      // construct tempFunc baesd on information in field
+      const tempFunc = function(obj, arr) {
+        //
+        // parse through obj and see
+      }
+      // append tempFunc as method to QLegance object
+      this[field.name] = tempFunc;
     }
   }
   // end of bind class
