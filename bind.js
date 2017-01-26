@@ -137,17 +137,62 @@ let QLegance = (()=>{
     }
 
     methodConstructor(field) {
-      // QLegance.field_name(...args, [returning values])
+      // ex: QLegance.field_name({}, [returning values])
 
-      // create tempFunc
+      // construct tempFunc based on information in field
+      const tempFunc = (obj, arr) => {
+        let returnValues = arr.join('\n');
 
-      // construct tempFunc baesd on information in field
-      const tempFunc = function(obj, arr) {
-        //
-        // parse through obj and see
+        // field that does take arguments
+        if (field.args.length) {
+          let args = '';
+          for (let i = 0 ; i < field.args.length; i += 1) {
+            let end = ''
+            if (i < field.args.length - 1) end += ', ';
+
+            if (field.args[i].type.kind === 'NON_NULL') {
+              if (field.args[i].name in obj) {
+                const item = this.typeConverter(field.args[i].type.ofType.name, obj[field.args[i].name]);
+                args += `${field.args[i].name} : ${item}${end}`
+              }
+            } else {
+              if (field.args[i].name in obj) {
+                const item = this.typeConverter(field.args[i].type.name, obj[field.args[i].name]);
+                args += `${field.args[i].name} : ${item}${end}`
+              }
+            }
+          }
+          return this.sendQuery(`
+            ${field.query} {
+              ${field.name}(${args}) {
+                ${returnValues}
+              }
+            }
+          `);
+
+        // field that does not take arguments
+        } else {
+          return this.sendQuery(`
+            ${field.query} {
+              ${field.name} {
+                ${returnValues}
+              }
+            }
+          `);
+        }
       }
-      // append tempFunc as method to QLegance object
+
+      // append tempFunc as method to QLegance object with the associted field name
       this[field.name] = tempFunc;
+    }
+
+    typeConverter(type, item) {
+      if (type === 'String') {
+        return `"${item}"`;
+      }
+      if (type === 'Int' || type === 'Float') {
+        return Number(item);
+      }
     }
   }
   // end of bind class
