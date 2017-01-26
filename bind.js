@@ -1,111 +1,13 @@
 'use strict';
 
 let QLegance = (()=>{
-  let controller = document.querySelector('[ql-ctrl]');
-  let elements = controller.querySelectorAll('[ql-type], [ql-list]');
-
   class Binder{
-    constructor(elements){
+    constructor(){
       let server = '';
-      let len = elements.length;
-      let fields, type;
-
-      for(let i = 0; i < len; i++){
-        type = this.getAttr(elements[i]);
-        fields = elements[i].querySelectorAll('[ql-field]');
-
-        this[type] = {};
-        this[type].type_name = type;
-        this[type].element = elements[i];
-        this[type].data = elements[i].value; //not implemented
-        this[type].element.addEventListener('change', this, false); //not coming into play
-        // this[type].fields = [];
-        this[type].fields = '';
-        this[type].populate = populate;
-
-        for(let n = 0; n < fields.length; n++){
-          //fields[n].style.display = 'none';
-          // this[type].fields.push(this.getAttr(fields[n]));
-          this[type].fields += this.getAttr(fields[n]) + '\n';
-        }
-      }
 
       this.setServer = (serv) => { 
-        server = serv; 
-        const introspectiveQuery = `
-          {
-            __schema {
-              mutationType {
-                name
-                fields {
-                  name
-                  type {
-                    name
-                  }
-                  args {
-                    name
-                    defaultValue
-                    type {
-                      kind
-                      name
-                      ofType {
-                        name
-                        kind
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        `;
-
-        this.sendQuery(introspectiveQuery)
-          .then((res) => {
-            console.log(res);
-            const data = res.data.__schema.mutationType.fields;
-            console.log(data);
-            const mutationTypes = {}; 
-            for (let i = 0; i < data.length; i += 1) {
-              if (!mutationTypes[data[i].type.name]) {
-                mutationTypes[data[i].type.name] = {};
-              }
-              mutationTypes[data[i].type.name][data[i].name] = {
-                args : {}
-              };
-              for (let j = 0; j < data[i].args.length; j += 1) {
-                if (data[i].args[j].type.kind === "NON_NULL") {
-                  mutationTypes[data[i].type.name][data[i].name].args[data[i].args[j].name] = {
-                    type: data[i].args[j].type.ofType.name,
-                    required: true
-                  };
-                } else {
-                  mutationTypes[data[i].type.name][data[i].name].args[data[i].args[j].name] = {
-                    type: data[i].args[j].type.name,
-                    required: false
-                  };
-                }
-              }
-            }
-            const mutationTypeKeys = Object.keys(mutationTypes);
-            // console.log('binder:', binder);
-            // console.log('mutationTypes:', mutationTypes);
-            for (let binderKey in binder) {
-              // console.log(key)
-              if (mutationTypeKeys.includes(binderKey)) {
-                for (let mutationKey in mutationTypes[binderKey]) {
-                  console.log(mutationTypes[binderKey])
-                  binder[binderKey][mutationKey] = function() {return};
-                }
-              }
-            }
-            // console.log('binder:', binder);
-          });
-        // type, fields of type
-        // this will be an array of objects, with each object being a mutation field
-        // key being type, value being a nested object with mutation fields and fields of type
-        // loop through ql-types in binder
-        // for each ql-type find the matching mutation fields
+        server = serv;
+        this.introspect();
       };
 
       this.getServer = () => { return server; };
@@ -121,7 +23,7 @@ let QLegance = (()=>{
           xhr.onreadystatechange = () => {
             if(xhr.status === 200 && xhr.readyState === 4){
               let response = JSON.parse(xhr.response);
-              this.cacheQuery(query, response.data);
+              // this.cacheQuery(query, response.data);
               resolve(response);
             }else if(xhr.status > 400 && xhr.status < 500){
               reject(xhr.status)
@@ -130,129 +32,106 @@ let QLegance = (()=>{
         });
       };
 
-      this.query = (query) => {
-        return new Promise((resolve, reject) => {
-          let xhr = new XMLHttpRequest();
-          let queryStr = "query" + query;
-          xhr.open("POST", server, true);
-          xhr.setRequestHeader("Content-Type", "application/json");
-          xhr.send(JSON.stringify({query: queryStr}));
-
-          xhr.onreadystatechange = () => {
-            if(xhr.status === 200 && xhr.readyState === 4){
-              let response = JSON.parse(xhr.response);
-              this.cacheQuery(query, response.data);
-              resolve(response);
-            }else if(xhr.status > 400 && xhr.status < 500){
-              reject(xhr.status)
-            }
-          };
-        });
+      this.query = (string) => {
+        return this.sendQuery("query" + string);
       };
 
-      this.mutate = (mutationStr) => {
-        return new Promise((resolve, reject) => {
-          let xhr = new XMLHttpRequest();
-          const string = "mutation " + mutationStr;
-          xhr.open("POST", server, true);
-          xhr.setRequestHeader("Content-Type", "application/json");
-          xhr.send(JSON.stringify({query: string}));
-
-          xhr.onreadystatechange = () => {
-            if(xhr.status === 200 && xhr.readyState === 4){
-              let response = JSON.parse(xhr.response);
-              this.cacheQuery(query, response.data);
-              resolve(response);
-            }else if(xhr.status > 400 && xhr.status < 500){
-              reject(xhr.status)
-            }
-          };
-        });
+      this.mutate = (string) => {
+        return this.sendQuery("mutation" + string);
       };
-      
     }
+    // end of constructor
 
-    cacheQuery(query, data){
-      let hash = JSON.stringify('QLegance:' + this.hashFunction(query));
-      localStorage[hash] = JSON.stringify(data);
-    }
-
-    resolveCache(){
-
-    }
-
-    hashFunction(string){
-      let h = 5, len = string.length;
-      for(let i = 0; i < len; i++){
-        h = h*16 + string[i].charCodeAt();
-      }
-      return h;
-    }
-
-    diffQuery(){
-
-    }
-
-    handlEvent(event){
-      if(event.type === 'change'){
-        this.change(event);
-      }
-    }
-
-    change(event){
-      if(!event.target) return;
-      let element = event.target;
-      let type = this.getAttr(element);
-      this[type].data = element.value;
-      this[type].element.value = element.value;
-    }
-
-    getAttr(element){
-      return element.getAttribute('ql-type') || element.getAttribute('ql-list') || element.getAttribute('ql-field');
-    }
-  }
-
-  function populate(data){
-    let fields = this.element.querySelectorAll('[ql-field]');
-    let collection = document.getElementById("list").getAttribute("ql-list");
-    let users = data[collection];
-    console.log("this: ", data[collection].length);
-    console.log("we want this: ", data);
-    let user;
-    let fieldName;
-    let element;
-    let elementType;
-    let lenInner;
-    let lenOuter =  users.length || 1;
-    let input;
-
-    for(let i = 0; i < lenOuter; i++){
-      input = null;
-      lenInner =  users[i] ? Object.keys(users[i]).length : Object.keys(users).length;
-      user = users[i] || users;
-
-      for(let n = 0; n < lenInner; n++){
-        element = document.createElement(fields[n].nodeName);
-
-        if(fields[n].nodeName.toLowerCase() === 'input'){
-          elementType = fields[n].getAttribute('type').toLowerCase();
-           input = 'value';
-           element.setAttribute('type', elementType);
-        }else{
-          input = 'innerHTML';
+    introspect() {
+      const introspectiveQuery = `
+        {
+          __schema {
+            mutationType {
+              name
+              fields {
+                name
+                type {
+                  name
+                  kind
+                }
+                args {
+                  name
+                  defaultValue
+                  type {
+                    kind
+                    name
+                    ofType {
+                      kind
+                      name
+                    }
+                  }
+                }
+              }
+            }
+            queryType {
+              name
+              fields {
+                name
+                type {
+                  name
+                  kind
+                }
+                args {
+                  name
+                  defaultValue
+                  type {
+                    kind
+                    name
+                    ofType {
+                      kind
+                      name
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
+      `;
 
-        fieldName = binder.getAttr(fields[n]);
-        element[input] = user[fieldName];
-        element.setAttribute('ql-field', fieldName);
+      this.sendQuery(introspectiveQuery)
+        .then((res) => {
+          // console.log(res);
+          const fields = res.data.__schema.mutationType.fields.concat(res.data.__schema.queryType.fields);
+          console.log('fields:', fields);
+          this.types = {};
+          // loop through fields
+          for (let i = 0; i < fields.length; i += 1) {
+            this.typeFieldConstructor(fields[i]);
+            this.methodConstructor(fields[i]);
+          }
+          console.log(this);
+        });
+    }
 
-        fields[n].remove();
-        this.element.append(element);
+    typeFieldConstructor(field) {
+      if (!this.types[field.type.name]) {
+        if (field.type.name) {
+          this.types[field.type.name] = [];
+        } else {
+          this.types[field.type.kind] = [];
+        }
+      }
+      if (field.type.name) {
+        // console.log('valid type');
+        this.types[field.type.name].push(field.name);
+      } else {
+        this.types[field.type.kind].push(field.name);
       }
     }
-  }
 
-  const binder = new Binder(elements);
+    methodConstructor(field) {
+
+    }
+  }
+  // end of bind class
+
+  const binder = new Binder();
   console.log('binder:', binder);
   return binder;
 })();
