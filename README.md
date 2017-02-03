@@ -1,5 +1,5 @@
 # QLegance
-A lightweight GraphQL client library for Javascript environments
+An open-source lightweight GraphQL client library for Javascript environments
 # Installation
 ``` bash
 npm install qlegance
