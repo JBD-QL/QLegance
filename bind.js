@@ -1,371 +1,398 @@
 'use strict';
 
-let QL = (()=>{
+const QL = (()=>{
+  const single = domSelection;
 
-  return new Binder();
+  // Holds an apps components defined by 'ql' attributes
+  const Client = {
+    components: [],
+    server: null
+  };
 
-  function Binder(){
-    let elements = document.querySelectorAll('[ql-type], [ql-list]');
+  single.getServer = () => { return Client.server; };
 
-      const single = domSelection;
+  single.setServer = (serv) => {
+    if(typeof serv !== 'string' || serv === '') throw new Error('Incorrect input for server');
+    Client.server = serv;
+    return serv;
+  };
 
-      let server = document.querySelector('[ql-server]').getAttribute('ql-server');
-      let fields, type, component;
-      let len = elements.length;
-      const Client = {
-        components: []
+  single.query = (string) => {
+    return sendQuery("query" + string);
+  };
+
+  single.mutate = (string) => {
+    return sendQuery("mutation" + string);
+  };
+
+  single.initializer = (string) => {
+    let server;
+    if (typeof string === 'undefined') {
+      string = document.querySelector('[ql-server]');
+      if(!string) throw new Error('GraphQL server has not been set.');
+      server = string.getAttribute('ql-server');
+    } else {
+      server = string;
+      single.setServer(server);
+    }
+    single.setServer(server);
+    introspect();
+    buildComponents();
+  };
+
+  return single;
+
+  function domSelection(selection){
+    //FIXME This feature is requested
+    /* selection can be called QLegance('#users(2)') to make list selections
+    */
+
+    //Check if selection is a wrapper object
+    if(selection.mutate !== undefined && selection.query !== undefined && selection.element !== undefined){
+      return selection;
+    }
+
+    //Check if selection is unacceptable - neither node or string value
+    if((selection.nodeType === undefined && selection.nodeName === undefined) && typeof selection !== 'string'){
+      throw new Error('Unacceptable input value.');
+    }
+
+    // If selection is string perform a DOM query
+    if(typeof selection === 'string'){
+      selection = document.querySelectorAll(selection);
+
+      //No returned elements to wrap
+      if(selection.length === 0) return selection;
+    }
+
+    return wrapElement(selection);
+  }
+
+  function wrapElement(selection){
+    let len = selection.length;
+    let wrapper = [];
+
+    for(let i = 0; i < len; i++){
+      wrapper[i] = {element: selection[i]};
+
+      //FIXME not  fully implemented
+      wrapper[i].mutate = ((method, args, returnValues) => {
+        return single[method](args, returnValues).then((result) => {
+            let component = Client.components.find( component => { return selection[i] === component.element; });
+            populate(component, result.data);
+            resolve(result.data);
+          });
+      });
+
+      wrapper[i].query = (method, args, returnValues) => {
+        return single[method](args, returnValues).then((result) => {
+          let component = Client.components.find( component => { return selection[i] === component.element; });
+          populate(component, result.data);
+          return result.data;
+        });
       };
+  }
+    return wrapper.length > 1 ? wrapper : wrapper[0];
+  }
 
-      single.getServer = () => { return server; };
-      single.setServer = (serv) => { server = serv; return server; };
+  function buildComponents(elements, nested){
+    elements = elements || document.querySelectorAll('[ql-type], [ql-list]');
+    if(elements.length === 0) return;
 
-      single.query = (string) => {
-        return sendQuery("query" + string);
-      };
+    elements = Array.prototype.slice.call(elements, 0); //convert NodeList to array
 
-      single.mutate = (string) => {
-        return sendQuery("mutation" + string);
-      };
+    for(let i = 0; i < elements.length; i++){
+      let field, fields, typeName, method, component, nestedTypes, nestedFields;
+      component = {element: elements[i]};
 
-      for(let i = 0; i < len; i++){
-        component = {element: elements[i]};
-        fields = elements[i].querySelectorAll('[ql-field]');
+      nestedTypes = component.element.querySelectorAll('[ql-type], [ql-list]');
 
-        type = getAttr(component.element).split('|');
+      component.fields = [];
+      fields = component.element.querySelectorAll('[ql-field]');
+      component.partial = component.element.cloneNode(true);
 
-        component.partial = component.element.cloneNode(true);
-        component.type_name = type[0].trim(); // ie. a schema defined for User
-        component.staged_query = type[1].trim(); // ie. getUser(limit: 1)
-        component.fields = [];
-        component.list = component.element.getAttribute('[ql-list]') ? true : false;
+      if(nestedTypes.length > 0){
+        nestedTypes = Array.prototype.slice.call(nestedTypes, 0);
 
-        for(let n = 0; n < fields.length; n++){
-          component.fields.push({name: getAttr(fields[n]), element: fields[n]});
-        }
+        elements = elements.filter((element) => {
+          return nestedTypes.reduce((unique, el) => {
+            return unique && el !== element;
+          }, true);
+        });
+        component.fields.push( buildComponents(nestedTypes, true) ); //passing true for nested value
+      }
 
+      if(!nested){
+        [typeName, method] = getAttr(component.element).split('|');
+        if(!typeName || !method) throw new Error('Field ql-type or ql-list is not defined correctly.');
+        component.type_name = typeName.trim(); // ie. a schema defined for User
+        component.initial_query = method.trim(); // ie. getUser(username: "Judy")
+      }else{
+        component.type_name = getAttr(component.element);
+      }
+
+      for(let n = 0; n < fields.length; n++){
+        component.fields.push({name: getAttr(fields[n]), element: fields[n]});
+      }
+
+      if(component.fields.length > 0 && !nested){
         sendQuery(buildQuery(component)).then((result) =>{
-          prePopulate(component, result.data);
+          populate(component, result.data);
         });
-
-        Client.components.push(component);
       }
 
-      single['getUser'] = (args, returnValues) => {
-        let query = `{
-            getUser(username: "${args.username}"){
-              ${returnValues.join('\n')}
-            }
+      Client.components.push(component);
+
+      if(nested) return component;
+    }
+  }
+
+  function getAttr(element){
+    return element.getAttribute('ql-type') || element.getAttribute('ql-list') || element.getAttribute('ql-field');
+  }
+
+  function parseQueryFields(fields){
+    return fields.map((field) => {
+      if(field.type_name) return `${field.type_name} { ${parseQueryFields(field.fields)} }`;
+      return field.name;
+    }).join('\n');
+  }
+
+  function buildQuery(component){
+    let query = component.initial_query;
+    let fields = parseQueryFields(component.fields);
+
+    if(query[query.length - 1] === ')' && query[query.length - 2] === '('){
+      query = getMethodName(query);
+    }
+
+    return `{
+      ${query}{
+        ${fields}
+      }
+    }`;
+  }
+
+  function getMethodName(query){
+    let index = query.indexOf('(');
+    index = index || undefined;
+    return query.substring(0, index);
+  }
+
+  function sendQuery(query){
+    return new Promise((resolve, reject) => {
+      let xhr = new XMLHttpRequest();
+
+      xhr.open("POST", Client.server, true);
+      xhr.setRequestHeader("Content-Type", "application/json");
+      xhr.send(JSON.stringify({query}));
+
+      xhr.onreadystatechange = () => {
+        if(xhr.readyState === 4){
+          if(xhr.status === 200){
+            resolve(JSON.parse(xhr.response));
+          }else{
+            reject(new Error(xhr.status));
           }
-        `;
-        return sendQuery(query);
+        }
       };
+    });
+  }
 
-      introspect();
+  function populate(component, data){
+    let input, template, len, element, value, keys,
+      html = '';
 
-      return single;
+    //FIXME Will need to iterate over keys when multiple queries are allowed
+    let queryKey = Object.keys(data)[0]
+    data = data[queryKey];
 
-      function domSelection(selection){
-        /* selection can be called QLegance('#users(2)') to make list selections
-        */
-        let collection;
-        if(typeof selection === 'string'){
-          collection = document.querySelectorAll(selection);
-          if(selection.indexOf('#') !== -1){
-            collection = collection[0];
+    data = Array.isArray(data) ? data : [data]; //Ensuring a length is available
+    len = data.length;
+
+    for(let i = 0; i < len; i++){
+      template = component.partial.cloneNode(true);
+      keys = Object.keys(data[i]);
+      keys.forEach((key) => {
+        element = template.querySelector(`[ql-field=${key}]`);
+        if(!element){
+          element = template.querySelector(`[ql-type=${key}]`) || template.querySelector(`[ql-list=${key}]`);
+          let comp = Client.components.find((component) => { return getAttr(component.element) === getAttr(element); });
+          let obj = {};
+          obj[`${queryKey}`] = data[i][getAttr(element)];
+
+          //populate an inner component then append it
+          element.parentNode.replaceChild( populate(comp, obj), element);
+        } else if (element.nodeName.toLowerCase() === 'input'){
+          element.setAttribute('value', data[i][key]);
+        } else {
+          element.innerHTML = data[i][key];
+        }
+      });
+
+      html += template.innerHTML;
+    }
+
+    component.element.innerHTML = html;
+    return template;
+  }
+
+  function introspect() {
+    const introspectiveQuery = `
+      {
+        __schema {
+          mutationType {
+            ...typeInfo
+          }
+          queryType {
+            ...typeInfo
           }
         }
-        return wrapElement(collection);
       }
 
-      function wrapElement(selection){
-        let wrapper = {element: selection};
-
-        wrapper.mutate = (method, args, returnValues, options) => {
-          return new Promise((resolve, reject) => {
-            method = 'getUser', args = {username: "Markle"}, returnValues = ['password'];
-            QLegance[method](args, returnValues).then((result) => {
-              let component = Client.components.find( component => { return selection === component.element; });
-              //if(!component) component = buildcomponent(selection);
-              prePopulate(component, result.data);
-              resolve(result.data);
-            });
-          })
-        };
-
-        wrapper.query = (method, args, returnValues) => {
-          return single[method](args, returnValues).then((result) => {
-            let component = Client.components.find( component => { return selection === component.element; });
-            prePopulate(component, result.data);
-            return result.data;
-          });
-        };
-        return wrapper;
-      }
-
-      function getAttr(element){
-        return element.getAttribute('ql-type') || element.getAttribute('ql-list') || element.getAttribute('ql-field');
-      }
-
-      function buildQuery(component){
-        let str = component.staged_query;
-        if(str[str.length - 1] === ')' && str[str.length - 2] === '('){
-          str = parseStagedQuery(str);
-        }
-
-        return `{
-          ${str}{
-            ${component.fields.map(field => {return field.name; }).join('\n')}
+      fragment typeInfo on __Type {
+        name
+        fields {
+          name
+          type {
+            name
+            kind
           }
-        }`;
-      }
-
-      function sendQuery(query){
-        return new Promise((resolve, reject) => {
-          let xhr = new XMLHttpRequest();
-
-          xhr.open("POST", server, true);
-          xhr.setRequestHeader("Content-Type", "application/json");
-        	xhr.send(JSON.stringify({query}));
-
-          xhr.onreadystatechange = () => {
-            if(xhr.status === 200 && xhr.readyState === 4){
-              resolve(JSON.parse(xhr.response));
-            }else if(xhr.status > 400 && xhr.status < 500){
-              reject(xhr.status);
-            }
-          };
-        });
-      }
-
-      function parseStagedQuery(query){
-        let index = query.indexOf('(');
-        index = index || undefined;
-        return query.substring(0, index);
-      }
-
-      function populate(component, data){
-        let input, template, len, element;
-        let key = Object.keys(data)[0];
-        let dataKeys;
-
-        data = data[key];
-        dataKeys = Object.keys(data);
-        len = dataKeys.length;
-        data = len > 1 ? data : [data];
-
-        for(let i = 0; i < len; i++){
-          dataKeys.forEach((key) => {
-            element = component.element.querySelector(`[ql-field=${dataKeys[i]}]`);
-            if(element.nodeName.toLowerCase() === 'input'){
-              element.setAttribute('value', data[i][key]);
-            }else{
-              element.innerHTML = data[i][key];
-            }
-          });
-        };
-      }
-
-      function prePopulate(component, data){
-        let input,
-         template, len, element, html = '', value;
-
-        //let queryKey = parseStagedQuery(component.staged_query);
-        let queryKey = Object.keys(data)[0];
-
-        data = data[queryKey];
-        len = data.length || 1;
-        data = Array.isArray(data) ? data : [data];
-
-        for(let i = 0; i < len; i++){
-          template = component.partial.cloneNode(true);
-          component.fields.forEach((field) => {
-            element = template.querySelector(`[ql-field=${field.name}]`);
-            if(element.nodeName.toLowerCase() === 'input'){
-              if(data[i][field.name] === 'undefined') return;
-              element.setAttribute('value', data[i][field.name]);
-            }else{
-              if(data[i][field.name] === 'undefined') return;
-              element.innerHTML = data[i][field.name];
-            }
-          });
-          html += template.innerHTML;
-        }
-
-        component.element.innerHTML = html;
-      }
-
-    function introspect() {
-      const introspectiveQuery = `
-        {
-          __schema {
-            mutationType {
+          args {
+            name
+            defaultValue
+            type {
+              kind
               name
-              fields {
+              ofType {
+                kind
                 name
-                type {
-                  name
+                ofType {
                   kind
-                }
-                args {
                   name
-                  defaultValue
-                  type {
+                  ofType {
                     kind
                     name
                     ofType {
                       kind
                       name
+                        ofType {
+                        kind
+                        name
+                        ofType {
+                          kind
+                          name
+                          description
+                        }
+                      }
                     }
-                  }
-                }
-              }
-            }
-            queryType {
-              name
-              fields {
-                name
-                type {
-                  name
-                  kind
-                }
-                args {
-                  name
-                  defaultValue
-                  type {
-                    kind
-                    name
-                    ofType {
-                      kind
-                      name
-                    }
-                  }
+                  } 
                 }
               }
             }
           }
         }
-      `;
-
-      sendQuery(introspectiveQuery)
-        .then((res) => {
-          // console.log(res);
-          const fields = [];
-          for (let i = 0; i < res.data.__schema.mutationType.fields.length; i += 1) {
-            // console.log(res.data.__schema.mutationType.fields[i]);
-            res.data.__schema.mutationType.fields[i].query = 'mutation';
-            fields.push(res.data.__schema.mutationType.fields[i]);
-          }
-          for (let i = 0; i < res.data.__schema.queryType.fields.length; i += 1) {
-            // console.log(res.data.__schema.queryType.fields[i]);
-            res.data.__schema.queryType.fields[i].query = 'query';
-            fields.push(res.data.__schema.queryType.fields[i]);
-          }
-          // res.data.__schema.mutationType.fields.concat(res.data.__schema.queryType.fields);
-          //console.log('fields:', fields);
-          //this.types = {};
-          // loop through fields
-          for (let i = 0; i < fields.length; i += 1) {
-          //  typeFieldConstructor(fields[i]);
-            methodConstructor(fields[i]);
-          }
-        });
-
-    }
-
-      function typeFieldConstructor(field) {
-          if (!this.types[field.type.name]) {
-            if (field.type.name) {
-              this.types[field.type.name] = [];
-            } else {
-              this.types[field.type.kind] = [];
-            }
-          }
-          if (field.type.name) {
-            // console.log('valid type');
-            this.types[field.type.name].push(field.name);
-          } else {
-            this.types[field.type.kind].push(field.name);
-          }
-        }
-
-        function methodConstructor(field) {
-          // ex: QLegance.field_name({}, [returning values])
-
-          // construct tempFunc based on information in field
-          const tempFunc = (obj, arr) => {
-            let returnValues = arr.join('\n');
-
-            // field that does take arguments
-            if (field.args.length) {
-              let args = '';
-              for (let i = 0 ; i < field.args.length; i += 1) {
-                let end = ''
-                if (i < field.args.length - 1) end += ', ';
-
-                if (field.args[i].type.kind === 'NON_NULL') {
-                  if (field.args[i].name in obj) {
-                    const item = typeConverter(field.args[i].type.ofType.name, obj[field.args[i].name]);
-                    args += `${field.args[i].name} : ${item}${end}`
-                  }
-                } else {
-                  if (field.args[i].name in obj) {
-                    const item = typeConverter(field.args[i].type.name, obj[field.args[i].name]);
-                    args += `${field.args[i].name} : ${item}${end}`
-                  }
-                }
-              }
-              return sendQuery(`
-                ${field.query} {
-                  ${field.name}(${args}) {
-                    ${returnValues}
-                  }
-                }
-              `);
-
-            // field that does not take arguments
-            } else {
-              return sendQuery(`
-                ${field.query} {
-                  ${field.name} {
-                    ${returnValues}
-                  }
-                }
-              `);
-            }
-          }
-
-          // append tempFunc as method to QLegance object with the associted field name
-          single[field.name] = tempFunc;
       }
+    `;
+    sendQuery(introspectiveQuery)
+      .then((res) => {
+        const fields = [];
+        for (let i = 0; i < res.data.__schema.mutationType.fields.length; i += 1) {
+          res.data.__schema.mutationType.fields[i].query = 'mutation';
+          fields.push(res.data.__schema.mutationType.fields[i]);
+        }
+        for (let i = 0; i < res.data.__schema.queryType.fields.length; i += 1) {
+          res.data.__schema.queryType.fields[i].query = 'query';
+          fields.push(res.data.__schema.queryType.fields[i]);
+        }
+        for (let i = 0; i < fields.length; i += 1) {
+          methodConstructor(fields[i]);
+        }
+      });
+  }
 
-        function typeConverter(type, item) {
-          if (type === 'String') {
-            return `"${item}"`;
-          }
-          if (type === 'Int' || type === 'Float') {
-            return Number(item);
+  function methodConstructor(field) {
+    // append the field as a method to QL object
+    single[field.name] = function(obj, arr) {
+      // save the associated arguments to the scope of the field/method
+      const requiredArgs = field.args;
+      // construct arguments based on client input
+      let args = argsConstructor(obj, requiredArgs);
+      // construct return values base on client input
+      let returnValues = returnValsConstructor(arr);
+      return sendQuery(`
+        ${field.query} {
+          ${field.name}${args} {
+            ${returnValues}
           }
         }
+      `);
     }
+  }
+
+
+  function argsConstructor(obj, array) {
+    if (!array.length) {
+      return '';
+    }
+    let output = '';
+    for (let i = 0; i < array.length; i += 1) {
+      let end = ''; 
+      if (i < array.length - 1) end += ', ';
+      let current = array[i].type;
+      while (current.ofType) {
+        current = current.ofType;
+      }
+      if (array[i].name in obj) {
+        const item = typeConverter(current.name, obj[array[i].name]);
+        output += `${array[i].name} : ${item}${end}`;
+      }
+    }
+    return `(${output})`;
+  }
+
+  function returnValsConstructor(array) {
+    let output = '';
+    for (let i = 0; i < array.length; i += 1) {
+      output += ' ';
+      if (typeof array[i] === 'string') {
+        output += array[i];
+      } else {
+        const key = Object.keys(array[i])[0];
+        output += `${key} {${returnValsConstructor(array[i][key])} }`;
+      }
+    }
+    return output;
+  }
+
+  function typeConverter(type, item) {
+    if (type === 'String') {
+      return `"${item}"`;
+    }
+    if (type === 'Int' || type === 'Float') {
+      return Number(item);
+    }
+  }
+
 })();
 
-  //    Features that have not been yet implemented
-  //    *************************************************
-  //
-  //   cacheQuery(query, data){
-  //     let hash = this.hashFunction(query);
-  //     localStorage[hash] = JSON.stringify({query, data});
-  //   }
-  //
-  //  preQueryResolve(query, data){ //not implemented as of yet
-  //     let hash = this.hashFunction(query);
-  //    return JSON.parse(localStorage[hash]);
-  //  }
-  //
-  //   hashFunction(string){
-  //     let hash = 5, len = string.length;
-  //     for(let i = 0; i < len; i++){
-  //       hash = hash*16 + string[i].charCodeAt();
-  //     }
-  //     return JSON.stringify('QLegance:' + hash);
-  //   }
+    //    Features that have not been yet implemented
+    //    *************************************************
+    //
+    //   cacheQuery(query, data){
+    //     let hash = this.hashFunction(query);
+    //     localStorage[hash] = JSON.stringify({query, data});
+    //   }
+    //
+    //  preQueryResolve(query, data){ //not implemented as of yet
+    //     let hash = this.hashFunction(query);
+    //    return JSON.parse(localStorage[hash]);
+    //  }
+    //
+    //   hashFunction(string){
+    //     let hash = 5, len = string.length;
+    //     for(let i = 0; i < len; i++){
+    //       hash = hash*16 + string[i].charCodeAt();
+    //     }
+    //     return JSON.stringify('QLegance:' + hash);
+    //   }
