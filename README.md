@@ -1,6 +1,6 @@
 # QLegance
 An open-source lightweight GraphQL client library for Javascript environments
-http://qlegance.com
+Website: http://qlegance.com
 
 # Installation
 ``` bash
