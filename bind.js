@@ -6,7 +6,9 @@ const QL = (()=>{
   // Holds an apps components defined by 'ql' attributes
   const Client = {
     components: [],
-    server: null
+    server: null,
+    types: {},
+    cache: {}
   };
 
   single.getServer = () => { return Client.server; };
@@ -25,15 +27,14 @@ const QL = (()=>{
     return sendQuery("mutation" + string);
   };
 
-  single.initializer = (string) => {
+  single.initializer = (serv) => {
     let server;
-    if (typeof string === 'undefined') {
-      string = document.querySelector('[ql-server]');
-      if(!string) throw new Error('GraphQL server has not been set.');
-      server = string.getAttribute('ql-server');
+    if (typeof serv === 'undefined') {
+      serv = document.querySelector('[ql-server]');
+      if(!serv) throw new Error('GraphQL server has not been set.');
+      server = serv.getAttribute('ql-server');
     } else {
-      server = string;
-      single.setServer(server);
+      server = serv;
     }
     single.setServer(server);
     introspect();
@@ -76,20 +77,18 @@ const QL = (()=>{
       wrapper[i] = {element: selection[i]};
 
       //FIXME not  fully implemented
-      wrapper[i].mutate = ((method, args, returnValues) => {
+      wrapper[i].mutate = (method, args, returnValues) => {
         if(!single[method]) throw new Error("Field method doesn't exist.");
-        
         return single[method](args, returnValues).then((result) => {
             let component = Client.components.find( component => { return selection[i] === component.element; });
             populate(component, result.data);
             resolve(result.data);
           });
-      });
+      };
 
-      wrapper[i].query = (method, args, returnValues) => {
-        if(!single[method]) throw new Error("Field method doesn't exist.");
-        
-        return single[method](args, returnValues).then((result) => {
+      wrapper[i].query = (method, args, returnValues, options) => {
+        if (typeof options === 'undefined') options = {};
+        return single[method](args, returnValues, options).then((result) => {
           let component = Client.components.find( component => { return selection[i] === component.element; });
           populate(component, result.data);
           return result.data;
@@ -251,6 +250,10 @@ const QL = (()=>{
           queryType {
             ...typeInfo
           }
+          types {
+            kind
+            ...typeInfo
+          }
         }
       }
 
@@ -261,6 +264,27 @@ const QL = (()=>{
           type {
             name
             kind
+            ofType {
+              name
+              kind
+              ofType {
+                name
+                kind
+                ofType {
+                  name
+                  kind
+                  ofType {
+                    name
+                    kind
+                    ofType {
+                      name
+                      kind
+                      description
+                    }
+                  }
+                }
+              }
+            }
           }
           args {
             name
@@ -300,40 +324,129 @@ const QL = (()=>{
     `;
     sendQuery(introspectiveQuery)
       .then((res) => {
+        const data = res.data.__schema;
         const fields = [];
-        for (let i = 0; i < res.data.__schema.mutationType.fields.length; i += 1) {
-          res.data.__schema.mutationType.fields[i].query = 'mutation';
-          fields.push(res.data.__schema.mutationType.fields[i]);
+        for (let i = 0; i < data.mutationType.fields.length; i += 1) {
+          data.mutationType.fields[i].query = 'mutation';
+          fields.push(data.mutationType.fields[i]);
         }
-        for (let i = 0; i < res.data.__schema.queryType.fields.length; i += 1) {
-          res.data.__schema.queryType.fields[i].query = 'query';
-          fields.push(res.data.__schema.queryType.fields[i]);
+        for (let i = 0; i < data.queryType.fields.length; i += 1) {
+          data.queryType.fields[i].query = 'query';
+          fields.push(data.queryType.fields[i]);
         }
         for (let i = 0; i < fields.length; i += 1) {
+          typeConstructor(fields[i]);
           methodConstructor(fields[i]);
+        }
+        for (let i = 0; i < data.types.length; i += 1) {
+          cacheTypesConstructor(data.types[i]);
         }
       });
   }
 
+  function cacheTypesConstructor(type) {
+    if (!Client.types[type.name] && type.kind === 'OBJECT' && type.name[0] !== '_') {
+      if (!Client.types[type.fields[0].name]) {
+        Client.cache[type.name] = [];
+      }
+    }
+  }
+
+  function typeConstructor(field) {
+    const fieldName = field.name;
+    let current = field.type;
+    let temp;
+    while (current.ofType) {
+      temp = current;
+      current = current.ofType;
+    }
+    const type = current.name;
+    let kind;
+    if (temp) kind = temp.kind;
+    else kind = current.kind;
+    Client.types[fieldName] = {
+      type : type,
+      kind : kind
+    };
+  }
+
   function methodConstructor(field) {
-    // append the field as a method to QL object
-    single[field.name] = function(obj, arr) {
-      // save the associated arguments to the scope of the field/method
+    single[field.name] = function(obj, arr, options) {
+      if (typeof options === 'undefined') options = {};
       const requiredArgs = field.args;
-      // construct arguments based on client input
-      let args = argsConstructor(obj, requiredArgs);
-      // construct return values base on client input
-      let returnValues = returnValsConstructor(arr);
-      return sendQuery(`
+      const args = argsConstructor(obj, requiredArgs);
+      const returnValues = returnValsConstructor(arr);
+      const queryStr = `
         ${field.query} {
           ${field.name}${args} {
             ${returnValues}
           }
         }
-      `);
+      `;
+      if (options.cache) {
+        return queryCache(field.query, field.name, obj, arr, args, returnValues);
+      } else {
+        return sendQuery(queryStr);
+      }
     }
   }
 
+  function queryCache(query, fieldName, args, returnValues, argStr, returnValStr) {
+    const queryStr = `
+      ${query} {
+        ${fieldName}${argStr} {
+          ${returnValStr}
+        }
+      }
+    `;
+    const cacheType = Client.types[fieldName].type;
+    const cacheKind = Client.types[fieldName].kind;
+    if (cacheKind === 'OBJECT') {
+      for (let i = 0; i < Client.cache[cacheType].length; i += 1) {
+        let argMatch = true;
+        let rvMatch = true;
+        for (let key in args) {
+          if (!Client.cache[cacheType][i][key] || Client.cache[cacheType][i][key] !== args[key]) {
+            argMatch = false;
+          }
+        }
+        for (let j = 0; j < returnValues.length; j += 1) {
+          let returnVal = returnValues[j];
+          if (typeof returnValues[j] === 'object') {
+            returnVal = Object.keys(returnValues[j])[0];
+          }
+          if (!Client.cache[cacheType][i][returnVal]) {
+            rvMatch = false;
+          }
+        }
+        if (argMatch && rvMatch) {
+          return new Promise((resolve, reject) => {
+            resolve({data : {fieldName : Client.cache[cacheType][i]}});
+          });
+        }
+      }
+      return cacher(queryStr, cacheType, fieldName);
+    } else {
+      return sendQuery(queryStr)
+        .then((res) => {
+          return new Promise((resolve, reject) => {
+            resolve(res);
+          });
+        });
+    }
+  }
+
+  function cacher(string, cacheType, fieldName, index) {
+    return sendQuery(string)
+      .then((res) => {
+        const data = res.data[fieldName];
+        if (index) Client.cache[cacheType].splice(index, 1);
+        Client.cache[cacheType].push(data);
+        return new Promise((resolve, reject) => {
+          resolve(res);
+        });
+      });
+  }
 
   function argsConstructor(obj, array) {
     if (!array.length) {
@@ -356,6 +469,7 @@ const QL = (()=>{
   }
 
   function returnValsConstructor(array) {
+    array.sort();
     let output = '';
     for (let i = 0; i < array.length; i += 1) {
       output += ' ';
@@ -379,24 +493,3 @@ const QL = (()=>{
   }
 
 })();
-
-    //    Features that have not been yet implemented
-    //    *************************************************
-    //
-    //   cacheQuery(query, data){
-    //     let hash = this.hashFunction(query);
-    //     localStorage[hash] = JSON.stringify({query, data});
-    //   }
-    //
-    //  preQueryResolve(query, data){ //not implemented as of yet
-    //     let hash = this.hashFunction(query);
-    //    return JSON.parse(localStorage[hash]);
-    //  }
-    //
-    //   hashFunction(string){
-    //     let hash = 5, len = string.length;
-    //     for(let i = 0; i < len; i++){
-    //       hash = hash*16 + string[i].charCodeAt();
-    //     }
-    //     return JSON.stringify('QLegance:' + hash);
-    //   }
