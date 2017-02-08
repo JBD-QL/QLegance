@@ -76,7 +76,6 @@ const QL = (()=>{
     for(let i = 0; i < len; i++){
       wrapper[i] = {element: selection[i]};
 
-      //FIXME not  fully implemented
       wrapper[i].mutate = (method, args, returnValues) => {
         if(!single[method]) throw new Error("Field method doesn't exist.");
         return single[method](args, returnValues).then((result) => {
