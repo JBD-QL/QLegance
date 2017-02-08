@@ -78,6 +78,7 @@ const QL = (()=>{
 
       //FIXME not  fully implemented
       wrapper[i].mutate = (method, args, returnValues) => {
+        if(!single[method]) throw new Error("Field method doesn't exist.");
         return single[method](args, returnValues).then((result) => {
             let component = Client.components.find( component => { return selection[i] === component.element; });
             populate(component, result.data);
