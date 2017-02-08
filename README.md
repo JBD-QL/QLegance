@@ -10,4 +10,4 @@ npm install qlegance
 [Relay](https://facebook.github.io/relay/) is a framework that is built on top of React and provides data fetching capability to React applications.  Relay bundles the individual queries made by the React components and sends one request to the GraphQL servers.  This ensures that the components only receive the data they need (no overfetching).  Relay also updates the components when the data changes and keeps a client side cache of the data, leading to shorter querying time.
 
 # Problem and Solution
-Unfortunately, Relay is tightly dependent on React and can't be used with other frameworks.  Qlegance wants to remedy this by providing a framework agnostic version of Relay, allowing other popular frameworks like Angular to utilize the powerful data fetching features.
+Current solutions are tightly coupled to other frameworks.  Qlegance wants to remedy this by providing a framework agnostic version, so every javascript environment can utilize the powerful data fetching features.
