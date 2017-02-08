@@ -1,5 +1,5 @@
 # QLegance
-An open-source lightweight GraphQL client library for Javascript environments
+An open-source lightweight GraphQL client library for Javascript environments<br/>
 Website: http://qlegance.com
 
 # Installation
