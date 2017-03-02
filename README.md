@@ -6,10 +6,10 @@ Website: http://qlegance.com
 ``` bash
 npm install qlegance
 ```
-# Background (GraphQL and Relay)
-[GraphQL](http://graphql.org/) is a querying language developed by Facebook for the purpose of data fetching and manipulation.  The data is retrieved from the GraphQL server via queries from the client side.  Its advantage over traditional REST APIs is that it allows the user to make advanced requests with includes and excludes.
+# Background
+[GraphQL](http://graphql.org/) is a powerful querying language that boasts a single server endpoint to aggregate multiple server requests into one. This allows large, data-driven companies such as Facebook to build things like a full-featured native News Feed. However, there is currently no framework-agnostic solution that works together with GraphQL for client-side data fetching. Qlegance solves this issue by introducing a lightweight GraphQL client library that works in any Javascript environment. Our explicit component declarations make for intuitive fast design. In addition, Our library leverages the already built configuration of your GraphQL server to produce a unique api for each client. 
 
-[Relay](https://facebook.github.io/relay/) is a framework that is built on top of React and provides data fetching capability to React applications.  Relay bundles the individual queries made by the React components and sends one request to the GraphQL servers.  This ensures that the components only receive the data they need (no overfetching).  Relay also updates the components when the data changes and keeps a client side cache of the data, leading to shorter querying time.
+# How it works
+QLegance can be easily integrated within any application by simply including the script in the HTML. First a custom ql-type attribute is used to define the type of data an element is holding, coinciding with the types defined in the GraphQL schema. Then the ql-field attribute is used within the component to specify which fields it should render. Using this information, QLegance creates components pre-populated with the appropriate data. Components are also instantiated with methods that query their respective Graphql fields. QLegance’s global object contains methods for each one of the defined GraphQL field methods. With Qlegance, queries and mutations can be made with less code, and results can be rendered directly onto the DOM without the need for additional Javascript.
 
-# Problem and Solution
-Current solutions are tightly coupled to other frameworks.  Qlegance wants to remedy this by providing a framework agnostic version, so every javascript environment can utilize the powerful data fetching features.
+Contributors: Joe Kim, Dhani Mayfield, Brandon Yuan
